@@ -1,0 +1,4 @@
+interface:
+  display_name: "Silicon Loop"
+  short_description: "STM32 SPL firmware build/flash/debug loop"
+  default_prompt: "Use $silicon-loop to implement, verify, flash, and batch-debug STM32 SPL firmware in this project."
