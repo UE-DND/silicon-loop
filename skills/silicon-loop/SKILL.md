@@ -29,7 +29,7 @@ Before any firmware work, check the project root for `.siliconloop`.
 
 - If `.siliconloop` exists and shows `status=ready`, treat the environment as ready and continue.
 - If `.siliconloop` exists and does not show `status=ready`, treat the environment as incomplete and account for the missing tools in the next steps.
-- If `.siliconloop` does not exist, run `node scripts/check_env.mjs` from the project root to generate it, then use the result.
+- If `.siliconloop` does not exist, run `node .agents/skills/silicon-loop/scripts/check_env.mjs` from the project root to generate it, then use the result.
 
 The script checks whether the core local dependencies are available, including:
 
@@ -40,6 +40,15 @@ The script checks whether the core local dependencies are available, including:
 - `arm-none-eabi-objcopy`
 - `arm-none-eabi-size`
 - `arm-none-eabi-gdb`
+
+The script also prints and persists detected executable paths for each tool in `.siliconloop`, for example:
+
+- `tool.cmake=/absolute/path/to/cmake`
+- `tool.openocd=/absolute/path/to/openocd`
+- `tool.arm-none-eabi-gcc=/absolute/path/to/arm-none-eabi-gcc`
+
+When a detected path is present, use that path directly in commands instead of assuming `PATH` resolution.
+If a path is `missing`, treat the tool as unavailable.
 
 Do not rewrite `.siliconloop` manually unless the task explicitly requires it.
 
@@ -128,7 +137,7 @@ Before writing direct register code, confirm all of the following when relevant:
 
 ## Using The SVD Helper
 
-The helper script lives at `scripts/svd_tool.mjs`.
+The helper script lives at `.agents/skills/silicon-loop/scripts/svd_tool.mjs`.
 Use it only when both are true:
 
 - the task needs low-level register facts
@@ -147,31 +156,31 @@ Use this progressive lookup order after selecting the correct SVD file:
 1. Build the peripheral map:
 
 ```bash
-node scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --list-peripherals
+node .agents/skills/silicon-loop/scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --list-peripherals
 ```
 
 2. Lock onto one peripheral:
 
 ```bash
-node scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME>
+node .agents/skills/silicon-loop/scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME>
 ```
 
 3. Inspect one register and its bitfields:
 
 ```bash
-node scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME> --register <REG_NAME>
+node .agents/skills/silicon-loop/scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME> --register <REG_NAME>
 ```
 
 4. Search fuzzily when the name or function is uncertain:
 
 ```bash
-node scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --search "<query>"
+node .agents/skills/silicon-loop/scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --search "<query>"
 ```
 
 5. Return machine-readable data when another script needs structured output:
 
 ```bash
-node scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME> --format json
+node .agents/skills/silicon-loop/scripts/svd_tool.mjs --file ./svd/<matching-device>.svd --peripheral <NAME> --format json
 ```
 
 Append `--format json` when structured output is needed.
@@ -197,19 +206,20 @@ Execute work in this order unless the task explicitly requires another sequence:
 
 Use the repository's existing build flow.
 Prefer a clean configure step when the build directory does not exist or toolchain settings changed.
+If `.siliconloop` has `tool.cmake=<path>`, invoke that exact binary.
 
 Typical commands:
 
 ```bash
-cmake -B build
-cmake --build build
+<cmake-path> -B build
+<cmake-path> --build build
 ```
 
 If the repository defines presets, prefer:
 
 ```bash
-cmake --preset <preset-name>
-cmake --build --preset <preset-name>
+<cmake-path> --preset <preset-name>
+<cmake-path> --build --preset <preset-name>
 ```
 
 When compilation fails, read stdout and stderr, patch the code, and rebuild.
@@ -220,6 +230,7 @@ Do not stop after reporting compiler errors.
 Never leave OpenOCD running in the foreground.
 Always use a one-shot command that programs, verifies, resets, and exits.
 Always include `exit`.
+If `.siliconloop` has `tool.openocd=<path>`, use that exact executable.
 
 Use the project's real interface and target config instead of hardcoding one board profile.
 If the active project does not define a board config, use the MCU family target script that matches the detected chip.
@@ -227,7 +238,7 @@ If the active project does not define a board config, use the MCU family target 
 Template:
 
 ```bash
-openocd -f <interface.cfg> -f <board-or-target.cfg> -c "program <path-to-elf> verify reset exit"
+<openocd-path> -f <interface.cfg> -f <board-or-target.cfg> -c "program <path-to-elf> verify reset exit"
 ```
 
 Replace the placeholders with the actual ELF and OpenOCD config discovered from the current project.
@@ -237,12 +248,13 @@ If flashing fails, inspect the command output, fix the image path, interface, ta
 
 Never launch interactive GDB.
 Never leave the terminal attached to a prompt waiting for manual input.
+If `.siliconloop` has `tool.arm-none-eabi-gdb=<path>`, use that exact executable.
 
 If a HardFault or other runtime crash occurs, capture the call stack and registers in batch mode.
 Use commands such as:
 
 ```bash
-arm-none-eabi-gdb <path-to-elf> -batch -ex "target extended-remote :3333" -ex "monitor reset halt" -ex "bt" -ex "info registers" -ex "x/16i \$pc" -ex "quit"
+<gdb-path> <path-to-elf> -batch -ex "target extended-remote :3333" -ex "monitor reset halt" -ex "bt" -ex "info registers" -ex "x/16i \$pc" -ex "quit"
 ```
 
 Adapt the ELF path, transport, and monitor commands to the current project.

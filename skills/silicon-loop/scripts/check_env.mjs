@@ -14,6 +14,17 @@ function commandExistsOnPath(command) {
   return result.status === 0;
 }
 
+function commandPathOnPath(command) {
+  const probe = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(probe, [command], { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  const first = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return first || null;
+}
+
 function canExecute(filePath, args = ["--version"]) {
   if (!filePath) return false;
   if (!fs.existsSync(filePath)) return false;
@@ -77,32 +88,45 @@ function clionCmakeCandidates() {
   return [...new Set(candidates)];
 }
 
-function cmakeAvailable() {
-  if (commandExistsOnPath("cmake")) return true;
+function cmakePath() {
+  const fromPath = commandPathOnPath("cmake");
+  if (fromPath) return fromPath;
+
   for (const candidate of clionCmakeCandidates()) {
-    if (canExecute(candidate)) return true;
+    if (canExecute(candidate)) return candidate;
   }
-  return false;
+
+  return null;
 }
 
-function toolAvailable(command) {
-  return commandExistsOnPath(command);
+function toolPath(command) {
+  return commandPathOnPath(command);
 }
 
 const checks = [
-  { name: "cmake", ok: cmakeAvailable() },
-  { name: "openocd", ok: toolAvailable("openocd") },
-  { name: "arm-none-eabi-gcc", ok: toolAvailable("arm-none-eabi-gcc") },
-  { name: "arm-none-eabi-g++", ok: toolAvailable("arm-none-eabi-g++") },
-  { name: "arm-none-eabi-objcopy", ok: toolAvailable("arm-none-eabi-objcopy") },
-  { name: "arm-none-eabi-size", ok: toolAvailable("arm-none-eabi-size") },
-  { name: "arm-none-eabi-gdb", ok: toolAvailable("arm-none-eabi-gdb") },
+  { name: "cmake", path: cmakePath() },
+  { name: "openocd", path: toolPath("openocd") },
+  { name: "arm-none-eabi-gcc", path: toolPath("arm-none-eabi-gcc") },
+  { name: "arm-none-eabi-g++", path: toolPath("arm-none-eabi-g++") },
+  { name: "arm-none-eabi-objcopy", path: toolPath("arm-none-eabi-objcopy") },
+  { name: "arm-none-eabi-size", path: toolPath("arm-none-eabi-size") },
+  { name: "arm-none-eabi-gdb", path: toolPath("arm-none-eabi-gdb") },
 ];
 
-const missing = checks.filter((check) => !check.ok).map((check) => check.name);
+const missing = checks.filter((check) => !check.path).map((check) => check.name);
 const ready = missing.length === 0;
 const summary = ready ? "environment ready" : `missing: ${missing.join(" ")}`;
 const result = ready ? "ready" : `missing: ${missing.join(" ")}`;
 
-fs.writeFileSync(statusFile, `status=${ready ? "ready" : "missing"}\nsummary=${summary}\n`, "utf8");
+const statusLines = [
+  `status=${ready ? "ready" : "missing"}`,
+  `summary=${summary}`,
+  ...checks.map((check) => `tool.${check.name}=${check.path ?? "missing"}`),
+];
+
+fs.writeFileSync(statusFile, `${statusLines.join("\n")}\n`, "utf8");
+
 process.stdout.write(`${result}\n`);
+for (const check of checks) {
+  process.stdout.write(`${check.name}=${check.path ?? "missing"}\n`);
+}
